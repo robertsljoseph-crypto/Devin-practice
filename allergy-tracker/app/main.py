@@ -23,12 +23,17 @@ DEFAULT_REMINDER_HOUR = 19
 scheduler = AsyncIOScheduler(timezone=TIMEZONE)
 
 
+def passcode() -> str:
+    """Env var wins; otherwise the passcode chosen on the first visit to a fresh deployment."""
+    return PASSCODE or (db.get_setting("passcode", "") or "")
+
+
 def _token() -> str:
-    return hashlib.sha256(f"allergy-tracker:{PASSCODE}".encode()).hexdigest()
+    return hashlib.sha256(f"allergy-tracker:{passcode()}".encode()).hexdigest()
 
 
 def require_auth(request: Request) -> None:
-    if not PASSCODE:
+    if not passcode():
         return
     if request.cookies.get(SESSION_COOKIE) != _token():
         raise HTTPException(status_code=401, detail="Passcode required")
@@ -94,7 +99,13 @@ async def healthz() -> dict[str, str]:
 
 @app.post("/api/login")
 async def login(response: Response, payload: dict = Body(...)) -> dict[str, bool]:
-    if PASSCODE and payload.get("passcode") != PASSCODE:
+    supplied = str(payload.get("passcode") or "")
+    current = passcode()
+    if not current:
+        if len(supplied) < 4:
+            raise HTTPException(status_code=400, detail="Choose a passcode of at least 4 characters")
+        db.set_setting("passcode", supplied)
+    elif supplied != current:
         raise HTTPException(status_code=401, detail="Wrong passcode")
     response.set_cookie(
         SESSION_COOKIE, _token(), max_age=60 * 60 * 24 * 365, httponly=True, samesite="lax", secure=True
@@ -104,10 +115,11 @@ async def login(response: Response, payload: dict = Body(...)) -> dict[str, bool
 
 @app.get("/api/me")
 async def me(request: Request) -> dict[str, Any]:
-    authed = not PASSCODE or request.cookies.get(SESSION_COOKIE) == _token()
+    current = passcode()
+    authed = not current or request.cookies.get(SESSION_COOKIE) == _token()
     return {
         "authenticated": authed,
-        "passcode_required": bool(PASSCODE),
+        "passcode_set": bool(current),
         "zip": ZIP_CODE,
         "symptoms": [{"key": k, "label": l} for k, l in SYMPTOMS],
         "reminder_hour": reminder_hour(),

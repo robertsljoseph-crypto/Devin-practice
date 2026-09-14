@@ -249,6 +249,12 @@ function wireSettings() {
 
 async function boot() {
   state.meta = await api("/api/me");
+  if (!state.meta.passcode_set) {
+    $("#login-title").textContent = "Choose a passcode";
+    $("#login-error").textContent = "First visit: pick a passcode to keep your log private.";
+    $("#login").classList.remove("hidden");
+    return;
+  }
   if (!state.meta.authenticated) {
     $("#login").classList.remove("hidden");
     return;
@@ -273,7 +279,7 @@ $("#login-form").addEventListener("submit", async (event) => {
     $("#login").classList.add("hidden");
     boot();
   } catch (err) {
-    $("#login-error").textContent = "Wrong passcode";
+    $("#login-error").textContent = err.message;
   }
 });
 
