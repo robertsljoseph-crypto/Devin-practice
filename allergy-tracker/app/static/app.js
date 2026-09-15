@@ -90,6 +90,14 @@ async function loadDay(date) {
 async function saveDay(event) {
   event.preventDefault();
   const date = $("#log-date").value;
+  if (!date) {
+    $("#save-status").textContent = "Pick a date first.";
+    return;
+  }
+  if (date > state.meta.today) {
+    $("#save-status").textContent = "That day hasn't happened yet.";
+    return;
+  }
   const payload = {
     ...state.severities,
     outdoor_minutes: Number($("#outdoor").value || 0),
@@ -97,8 +105,12 @@ async function saveDay(event) {
     notes: $("#notes").value,
   };
   $("#save-status").textContent = "Saving...";
-  await api(`/api/day/${date}`, { method: "POST", body: JSON.stringify(payload) });
-  $("#save-status").textContent = `Saved ${date}.`;
+  try {
+    await api(`/api/day/${date}`, { method: "POST", body: JSON.stringify(payload) });
+    $("#save-status").textContent = `Saved ${date}.`;
+  } catch (err) {
+    $("#save-status").textContent = `Could not save: ${err.message}`;
+  }
 }
 
 async function loadForecast() {
@@ -263,6 +275,7 @@ async function boot() {
   $("#zip-label").textContent = state.meta.zip;
   renderSymptomInputs();
   wireSettings();
+  $("#log-date").max = state.meta.today;
   $("#log-date").value = state.meta.today;
   await loadDay(state.meta.today);
   loadForecast();
@@ -271,7 +284,9 @@ async function boot() {
 
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
 $("#log-form").addEventListener("submit", saveDay);
-$("#log-date").addEventListener("change", (e) => loadDay(e.target.value));
+$("#log-date").addEventListener("change", (e) => {
+  if (e.target.value) loadDay(e.target.value);
+});
 $("#login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   try {

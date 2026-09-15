@@ -139,7 +139,12 @@ async def get_day(date: str) -> dict[str, Any]:
 
 @app.post("/api/day/{date}", dependencies=[Depends(require_auth)])
 async def save_day(date: str, payload: dict = Body(...)) -> dict[str, Any]:
-    dt.date.fromisoformat(date)
+    try:
+        parsed = dt.date.fromisoformat(date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date") from None
+    if parsed > ingest.today_local():
+        raise HTTPException(status_code=400, detail="Cannot log a day that hasn't happened yet")
     db.upsert_symptom_log(date, payload)
     return await get_day(date)
 
@@ -157,7 +162,7 @@ async def history(days: int = 120) -> list[dict[str, Any]]:
 
 @app.get("/api/insights", dependencies=[Depends(require_auth)])
 async def insights(start: str | None = None, end: str | None = None) -> dict[str, Any]:
-    return analysis.insights(start, end)
+    return analysis.insights(start, end or ingest.today_local().isoformat())
 
 
 @app.get("/api/forecast", dependencies=[Depends(require_auth)])
