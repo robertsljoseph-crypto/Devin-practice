@@ -23,11 +23,13 @@
   const rnd = (n) => Math.floor(Math.random() * n);
   const key = (r, c) => r * 100 + c;
   const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+  const storageGet = (name) => { try { return localStorage.getItem(name); } catch (_) { return null; } };
+  const storageSet = (name, value) => { try { localStorage.setItem(name, value); } catch (_) { /* persistence optional */ } };
 
   // ---------------------------------------------------------------- sound
   const Sound = (() => {
     let ctx = null;
-    let enabled = localStorage.getItem("battleships.sound") !== "off";
+    let enabled = storageGet("battleships.sound") !== "off";
     const ac = () => {
       if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
       if (ctx.state === "suspended") ctx.resume();
@@ -67,7 +69,7 @@
       get enabled() { return enabled; },
       toggle() {
         enabled = !enabled;
-        localStorage.setItem("battleships.sound", enabled ? "on" : "off");
+        storageSet("battleships.sound", enabled ? "on" : "off");
         if (enabled) this.click();
         return enabled;
       },
@@ -294,11 +296,11 @@
   // ---------------------------------------------------------------- settings screen
   const loadSettings = () => {
     try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+      const saved = JSON.parse(storageGet(STORAGE_KEY));
       if (saved && saved.n && saved.fleet) state.settings = { ...state.settings, ...saved };
     } catch (_) { /* ignore */ }
   };
-  const saveSettings = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(state.settings));
+  const saveSettings = () => storageSet(STORAGE_KEY, JSON.stringify(state.settings));
 
   const fleetCells = () => Object.entries(state.settings.fleet).reduce((a, [len, q]) => a + len * q, 0);
   const fleetCount = () => Object.values(state.settings.fleet).reduce((a, q) => a + q, 0);
@@ -372,7 +374,7 @@
   };
 
   // ---------------------------------------------------------------- board rendering
-  const buildGrid = (container, n) => {
+  const buildGrid = (container, n, focusable = false) => {
     container.innerHTML = "";
     container.style.setProperty("--n", n);
     const cells = [];
@@ -383,6 +385,10 @@
         cell.dataset.r = r;
         cell.dataset.c = c;
         cell.setAttribute("aria-label", `${String.fromCharCode(65 + r)}${c + 1}`);
+        if (focusable) {
+          cell.tabIndex = 0;
+          cell.setAttribute("role", "button");
+        }
         container.appendChild(cell);
         row.push(cell);
       }
@@ -602,7 +608,7 @@
     state.over = false;
     state.match++;
     state.stats = { shots: 0, hits: 0, enemyShots: 0, enemyHits: 0, started: Date.now() };
-    enemyCells = buildGrid(enemyBoardEl, n);
+    enemyCells = buildGrid(enemyBoardEl, n, true);
     ownCells = buildGrid(ownBoardEl, n);
     renderBattle();
     setMessage("Select a target on the enemy grid.");
@@ -730,6 +736,13 @@
     enemyBoardEl.addEventListener("click", (e) => {
       const cell = e.target.closest(".cell");
       if (!cell) return;
+      playerFire(+cell.dataset.r, +cell.dataset.c);
+    });
+    enemyBoardEl.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      const cell = e.target.closest(".cell");
+      if (!cell) return;
+      e.preventDefault();
       playerFire(+cell.dataset.r, +cell.dataset.c);
     });
     $("#play-again").addEventListener("click", () => { Sound.click(); startPlacement(); });
