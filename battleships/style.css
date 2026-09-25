@@ -193,7 +193,7 @@ button.link { background: none; border: none; color: var(--muted); text-decorati
 .dock-empty { color: var(--muted); font-size: 0.8rem; width: 100%; text-align: center; }
 
 .drag-ghost {
-  position: fixed; z-index: 100; pointer-events: none; display: grid; gap: 2px; opacity: 0.85;
+  position: fixed; z-index: 100; pointer-events: none; display: grid; gap: 2px; opacity: 0.4;
   filter: drop-shadow(0 0 8px var(--green-glow));
 }
 .drag-ghost[hidden] { display: none; }

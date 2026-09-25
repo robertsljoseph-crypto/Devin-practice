@@ -279,6 +279,7 @@
     turn: "player",
     busy: false,
     over: false,
+    match: 0,
     stats: { shots: 0, hits: 0, enemyShots: 0, enemyHits: 0, started: 0 },
     selectedShip: null,
   };
@@ -422,6 +423,7 @@
     state.player = new Board(n);
     state.player.ships = buildShips(fleet);
     state.selectedShip = null;
+    state.match++;
     placeCells = buildGrid(placeBoardEl, n);
     renderPlacement();
     screens.show("placement");
@@ -598,6 +600,7 @@
     state.turn = "player";
     state.busy = false;
     state.over = false;
+    state.match++;
     state.stats = { shots: 0, hits: 0, enemyShots: 0, enemyHits: 0, started: Date.now() };
     enemyCells = buildGrid(enemyBoardEl, n);
     ownCells = buildGrid(ownBoardEl, n);
@@ -649,8 +652,10 @@
     if (!res) return;
     state.busy = true;
     state.stats.shots++;
+    const match = state.match;
     Sound.fire();
     await sleep(180);
+    if (match !== state.match) return;
     if (res.result === "miss") { Sound.miss(); setMessage(`${coord(r, c)} — Miss.`); }
     else {
       state.stats.hits++;
@@ -663,6 +668,7 @@
     state.turn = "enemy";
     setTurn("enemy");
     await sleep(AI_DELAY);
+    if (match !== state.match) return;
     await enemyTurn();
   };
 
@@ -670,8 +676,10 @@
     const [r, c] = state.ai.pick();
     const res = state.player.fire(r, c);
     state.stats.enemyShots++;
+    const match = state.match;
     Sound.fire();
     await sleep(200);
+    if (match !== state.match) return;
     if (res.result === "miss") { Sound.miss(); setMessage(`Enemy fires at ${coord(r, c)} — splash.`); }
     else {
       state.stats.enemyHits++;
@@ -684,6 +692,7 @@
     renderBattle();
     if (state.player.allSunk) return endGame(false);
     await sleep(400);
+    if (match !== state.match) return;
     state.turn = "player";
     state.busy = false;
     setTurn("player");
@@ -696,7 +705,9 @@
     setTurn(won ? "player" : "enemy");
     setMessage(won ? "Enemy fleet destroyed." : "Your fleet has been lost.", won ? "sunk" : "hit");
     won ? Sound.win() : Sound.lose();
+    const match = state.match;
     await sleep(1600);
+    if (match !== state.match) return;
     const st = state.stats;
     const secs = Math.round((Date.now() - st.started) / 1000);
     $("#over-title").textContent = won ? "VICTORY" : "DEFEAT";
@@ -723,7 +734,7 @@
     });
     $("#play-again").addEventListener("click", () => { Sound.click(); startPlacement(); });
     $("#over-settings").addEventListener("click", () => screens.show("settings"));
-    $("#restart-btn").addEventListener("click", () => { Sound.click(); screens.show("settings"); });
+    $("#restart-btn").addEventListener("click", () => { Sound.click(); state.match++; screens.show("settings"); });
     const st = $("#sound-toggle");
     const paint = () => { st.classList.toggle("muted", !Sound.enabled); st.textContent = Sound.enabled ? "SFX ON" : "SFX OFF"; };
     st.addEventListener("click", () => { Sound.toggle(); paint(); });
