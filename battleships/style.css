@@ -136,8 +136,12 @@ button.link { background: none; border: none; color: var(--muted); text-decorati
   box-shadow: 0 0 25px rgba(57,255,138,0.15), inset 0 0 60px rgba(0,0,0,0.5);
   width: max-content;
   max-width: 100%;
+  /* fit --n cells (+2px gaps) within the viewport minus page padding */
+  --fit: calc((100vw - 2.5rem) / var(--n, 10) - 2px);
+  --cell: clamp(12px, min(var(--fit), 7.5vw), 44px);
 }
-.board.small { --cell: clamp(14px, 4vw, 28px); }
+.board.small { --cell: clamp(10px, min(var(--fit), 4vw), 28px); }
+.board .cell:focus-visible { outline: 2px solid var(--amber); outline-offset: -1px; z-index: 2; }
 
 .cell {
   background: var(--grid);
@@ -228,7 +232,7 @@ button.link { background: none; border: none; color: var(--muted); text-decorati
   #app { padding: 0.6rem; }
   .logo small { display: none; }
   .battle-layout { gap: 1.2rem; }
-  .board.small { --cell: clamp(12px, 3.2vw, 22px); }
+  .board.small { --cell: clamp(10px, min(var(--fit), 3.2vw), 22px); }
   .placement-layout { flex-direction: column; align-items: center; }
   .dock-panel { max-width: none; width: 100%; }
   .fleet-list { font-size: 0.7rem; }
