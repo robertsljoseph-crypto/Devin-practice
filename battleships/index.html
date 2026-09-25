@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#04110a">
+  <title>BATTLESHIPS // RADAR</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="scanlines" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <h1 class="logo"><span class="blink">&#9679;</span> BATTLESHIPS <small>// RADAR OPS</small></h1>
+    <div class="topbar-actions">
+      <button id="sound-toggle" class="icon-btn" aria-label="Toggle sound" title="Toggle sound">&#128266;</button>
+      <button id="restart-btn" class="icon-btn" aria-label="New game" title="New game">&#8635;</button>
+    </div>
+  </header>
+
+  <main id="app">
+
+    <!-- SETTINGS -->
+    <section id="screen-settings" class="screen active">
+      <div class="panel">
+        <h2>MISSION PARAMETERS</h2>
+
+        <div class="field">
+          <label for="board-size">Grid size <output id="board-size-out">10 &times; 10</output></label>
+          <input type="range" id="board-size" min="6" max="14" value="10">
+        </div>
+
+        <div class="field">
+          <label>Fleet preset</label>
+          <div class="chip-row" id="fleet-presets">
+            <button class="chip active" data-preset="classic">Classic</button>
+            <button class="chip" data-preset="skirmish">Skirmish</button>
+            <button class="chip" data-preset="armada">Armada</button>
+            <button class="chip" data-preset="custom">Custom</button>
+          </div>
+        </div>
+
+        <div class="field" id="fleet-editor">
+          <label>Fleet composition <output id="fleet-cells"></output></label>
+          <div id="fleet-rows"></div>
+        </div>
+
+        <div class="field">
+          <label>Enemy commander</label>
+          <div class="chip-row" id="ai-levels">
+            <button class="chip" data-level="easy">Cadet</button>
+            <button class="chip active" data-level="normal">Captain</button>
+            <button class="chip" data-level="hard">Admiral</button>
+          </div>
+        </div>
+
+        <p class="warn" id="settings-warn" hidden></p>
+        <button id="to-placement" class="primary big">DEPLOY FLEET &raquo;</button>
+      </div>
+    </section>
+
+    <!-- PLACEMENT -->
+    <section id="screen-placement" class="screen">
+      <div class="placement-layout">
+        <div class="board-wrap">
+          <h2>DEPLOY YOUR FLEET</h2>
+          <p class="hint">Drag ships onto the grid. Tap a placed ship to select it, then rotate. Double-tap rotates in place.</p>
+          <div id="place-board" class="board"></div>
+        </div>
+        <aside class="dock-panel">
+          <h3>DRY DOCK</h3>
+          <div id="dock" class="dock"></div>
+          <div class="btn-row">
+            <button id="rotate-btn" class="secondary">&#8635; Rotate</button>
+            <button id="random-btn" class="secondary">&#9860; Randomize</button>
+            <button id="clear-btn" class="secondary">&#10005; Clear</button>
+          </div>
+          <button id="start-btn" class="primary big" disabled>ENGAGE &raquo;</button>
+          <button id="back-settings" class="link">&laquo; back to parameters</button>
+        </aside>
+      </div>
+    </section>
+
+    <!-- BATTLE -->
+    <section id="screen-battle" class="screen">
+      <div class="status-bar">
+        <div id="turn-indicator" class="turn">YOUR TURN</div>
+        <div id="message" class="message">Select a target on the enemy grid.</div>
+      </div>
+      <div class="battle-layout">
+        <div class="board-wrap enemy">
+          <h3>ENEMY WATERS <span class="count" id="enemy-remaining"></span></h3>
+          <div id="enemy-board" class="board targetable"></div>
+          <ul id="enemy-fleet" class="fleet-list"></ul>
+        </div>
+        <div class="board-wrap own">
+          <h3>YOUR FLEET <span class="count" id="own-remaining"></span></h3>
+          <div id="own-board" class="board small"></div>
+          <ul id="own-fleet" class="fleet-list"></ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- GAME OVER -->
+    <section id="screen-over" class="screen">
+      <div class="panel center">
+        <h2 id="over-title">VICTORY</h2>
+        <p id="over-sub"></p>
+        <div class="stats" id="over-stats"></div>
+        <button id="play-again" class="primary big">PLAY AGAIN</button>
+        <button id="over-settings" class="link">change parameters</button>
+      </div>
+    </section>
+
+  </main>
+
+  <div id="drag-ghost" class="drag-ghost" hidden></div>
+  <script src="game.js"></script>
+</body>
+</html>
