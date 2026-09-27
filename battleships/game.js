@@ -494,10 +494,10 @@
     });
     $("#install-btn").addEventListener("click", async () => {
       if (!installPrompt) return;
+      $("#install-bar").classList.remove("show");
       installPrompt.prompt();
       await installPrompt.userChoice;
       installPrompt = null;
-      $("#install-bar").classList.remove("show");
     });
     window.addEventListener("appinstalled", () => $("#install-bar").classList.remove("show"));
     if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
@@ -582,6 +582,8 @@
       for (let i = 0; i < s.len; i++) d.appendChild(el("i"));
       dockEl.appendChild(d);
     }
+    ["#rotate-btn", "#random-btn", "#clear-btn"].forEach((id) => { $(id).disabled = state.ready.me; });
+    $("#screen-placement").classList.toggle("locked", state.ready.me);
     const start = $("#start-btn");
     start.disabled = !b.allPlaced || state.ready.me;
     start.innerHTML = state.ready.me ? "WAITING FOR OPPONENT…" : "ENGAGE &raquo;";
@@ -633,6 +635,7 @@
 
   const onPointerDown = (e) => {
     if (e.button !== undefined && e.button !== 0) return;
+    if (state.ready.me) return;
     const dockShip = e.target.closest(".dock-ship");
     const cell = e.target.closest("#place-board .cell");
     let ship = null, grab = 0;
@@ -727,7 +730,10 @@
     });
     $("#random-btn").addEventListener("click", () => { state.player.randomize(); state.selectedShip = null; Sound.place(); renderPlacement(); });
     $("#clear-btn").addEventListener("click", () => { state.player.clear(); state.selectedShip = null; Sound.click(); renderPlacement(); });
-    $("#back-settings").addEventListener("click", () => screens.show("settings"));
+    $("#back-settings").addEventListener("click", () => {
+      if (state.ready.me) { state.ready.me = false; Net.send({ t: "unready" }); }
+      screens.show("settings");
+    });
     $("#start-btn").addEventListener("click", () => {
       if (!state.player.allPlaced || state.ready.me) return;
       Sound.click();
@@ -953,7 +959,8 @@
   const Net = (() => {
     const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     const api = { role: null, connected: false, code: null };
-    let peer = null, conn = null;
+    let peer = null, conn = null, pingTimer = null, lastSeen = 0;
+    const PING_MS = 3000, LOST_MS = 12000;
 
     const statusEl = () => $("#online-status");
     const status = (text, err = false, spin = false) => {
@@ -973,6 +980,7 @@
     const teardown = () => {
       if (conn) { conn.removeAllListeners && conn.removeAllListeners(); try { conn.close(); } catch (_) { /* already closed */ } }
       if (peer) { try { peer.destroy(); } catch (_) { /* already destroyed */ } }
+      clearInterval(pingTimer); pingTimer = null;
       conn = null; peer = null;
       api.connected = false; api.role = null; api.code = null;
     };
@@ -981,11 +989,16 @@
       conn = c;
       c.on("open", () => {
         api.connected = true;
+        lastSeen = Date.now();
+        pingTimer = setInterval(() => {
+          if (Date.now() - lastSeen > LOST_MS) { onLost("Lost contact with your opponent."); return; }
+          api.send({ t: "ping" });
+        }, PING_MS);
         status("Connected. " + (api.role === "host" ? "Set the grid and fleet, then deploy." : "Waiting for the host to pick the grid and fleet…"));
         Sound.place();
         view();
       });
-      c.on("data", (msg) => handle(msg));
+      c.on("data", (msg) => { lastSeen = Date.now(); handle(msg); });
       c.on("close", () => onLost("Opponent disconnected."));
       c.on("error", () => onLost("Connection error."));
     };
@@ -1015,6 +1028,10 @@
           state.ready.them = true;
           renderPlacement();
           maybeStartOnline();
+          break;
+        case "unready":
+          state.ready.them = false;
+          renderPlacement();
           break;
         case "start":
           if (api.role !== "guest") return;
