@@ -9,8 +9,23 @@
     armada: { 5: 1, 4: 2, 3: 2, 2: 2, 1: 2 },
   };
   const MAX_FILL = 0.4;
-  const AI_DELAY = 750;
-  const STORAGE_KEY = "battleships.settings.v1";
+  const STORAGE_KEY = "battleships.settings.v2";
+  const THEME_KEY = "battleships.theme";
+  const THEMES = ["radar", "amber", "daylight"];
+  const THEME_COLORS = { radar: "#04110a", amber: "#120a02", daylight: "#e8f1f5" };
+  // multipliers applied to every battle delay (shot travel, AI "thinking", turn hand-over)
+  const PACE = { relaxed: 2.2, normal: 1.5, fast: 0.9 };
+  const PACE_DESC = {
+    relaxed: "Plenty of time to read each result before the enemy replies.",
+    normal: "A steady rhythm — a beat after every shot.",
+    fast: "Snappy. For players who already know the drill.",
+  };
+  const LEVELS = {
+    easy: { bars: 1, label: "BEGINNER", desc: "Cadet fires at random and never follows up a hit. Ideal for learning the rules." },
+    normal: { bars: 2, label: "INTERMEDIATE", desc: "Captain searches in a checkerboard pattern and, after a hit, hunts along the ship until it sinks. A fair fight." },
+    hard: { bars: 3, label: "EXPERT", desc: "Admiral calculates the most likely ship positions before every shot. Expect to lose more than you win." },
+  };
+  const PEER_PREFIX = "bs-radar-";
 
   // ---------------------------------------------------------------- helpers
   const $ = (sel) => document.querySelector(sel);
@@ -176,6 +191,28 @@
     return ships;
   };
 
+  // Opponent's board in an online match: we only learn about it shot by shot.
+  class RemoteBoard extends Board {
+    constructor(n, fleet) {
+      super(n);
+      this.ships = buildShips(fleet);
+    }
+    apply(r, c, res) {
+      this.shots.set(key(r, c), res.result === "miss" ? "miss" : "hit");
+      if (res.result !== "sunk") return { result: res.result, ship: null };
+      const ship = this.ships.find((s) => !s.sunk && s.len === res.ship.len) || this.ships.find((s) => !s.sunk);
+      ship.hits = ship.len;
+      const cells = res.ship.cells || [];
+      if (cells.length) {
+        ship.placed = true;
+        [ship.row, ship.col] = cells[0];
+        ship.horiz = cells.length === 1 || cells[1][0] === cells[0][0];
+        cells.forEach(([rr, cc]) => this.occ.set(key(rr, cc), ship));
+      }
+      return { result: "sunk", ship };
+    }
+  }
+
   // ---------------------------------------------------------------- AI
   class AI {
     constructor(board, level, fleet) {
@@ -274,7 +311,9 @@
 
   // ---------------------------------------------------------------- state
   const state = {
-    settings: { n: 10, fleet: { ...PRESETS.classic }, preset: "classic", level: "normal" },
+    settings: { n: 10, fleet: { ...PRESETS.classic }, preset: "classic", level: "normal", pace: "normal" },
+    mode: "ai", // "ai" | "online"
+    ready: { me: false, them: false },
     player: null,
     enemy: null,
     ai: null,
@@ -302,6 +341,8 @@
   };
   const saveSettings = () => storageSet(STORAGE_KEY, JSON.stringify(state.settings));
 
+  const paceMs = (ms) => Math.round(ms * (PACE[state.settings.pace] || PACE.normal));
+
   const fleetCells = () => Object.entries(state.settings.fleet).reduce((a, [len, q]) => a + len * q, 0);
   const fleetCount = () => Object.values(state.settings.fleet).reduce((a, q) => a + q, 0);
 
@@ -322,6 +363,22 @@
     $("#board-size-out").innerHTML = `${s.n} &times; ${s.n}`;
     document.querySelectorAll("#fleet-presets .chip").forEach((c) => c.classList.toggle("active", c.dataset.preset === s.preset));
     document.querySelectorAll("#ai-levels .chip").forEach((c) => c.classList.toggle("active", c.dataset.level === s.level));
+    document.querySelectorAll("#pace-levels .chip").forEach((c) => c.classList.toggle("active", c.dataset.pace === s.pace));
+    const lv = LEVELS[s.level] || LEVELS.normal;
+    const meter = $("#level-meter");
+    meter.dataset.level = s.level;
+    meter.querySelectorAll(".bars i").forEach((b, i) => b.classList.toggle("on", i < lv.bars));
+    $("#level-label").textContent = lv.label;
+    $("#level-desc").textContent = lv.desc;
+    $("#pace-desc").textContent = PACE_DESC[s.pace] || PACE_DESC.normal;
+    const online = state.mode === "online";
+    document.querySelectorAll("#opponent-modes .chip").forEach((c) => c.classList.toggle("active", c.dataset.mode === state.mode));
+    $("#online-box").hidden = !online;
+    $("#ai-field").hidden = online;
+    $("#pace-field").hidden = online;
+    const guest = online && Net.role === "guest";
+    $("#board-size").disabled = guest;
+    document.querySelectorAll("#fleet-presets .chip").forEach((c) => { c.disabled = guest; });
     const rows = $("#fleet-rows");
     rows.innerHTML = "";
     [5, 4, 3, 2, 1].forEach((len) => {
@@ -348,7 +405,16 @@
     const warn = $("#settings-warn");
     warn.hidden = !err;
     warn.textContent = err || "";
-    $("#to-placement").disabled = !!err;
+    document.querySelectorAll("#fleet-rows button").forEach((b) => { if (guest) b.disabled = true; });
+    const toPlace = $("#to-placement");
+    if (online) {
+      toPlace.disabled = !!err || !Net.connected;
+      toPlace.innerHTML = Net.role === "guest" ? "WAITING FOR HOST…" : (Net.connected ? "DEPLOY FLEET &raquo;" : "WAITING FOR OPPONENT…");
+      if (Net.role === "guest") toPlace.disabled = true;
+    } else {
+      toPlace.disabled = !!err;
+      toPlace.innerHTML = "DEPLOY FLEET &raquo;";
+    }
     saveSettings();
   };
 
@@ -370,7 +436,73 @@
       Sound.click();
       renderSettings();
     });
-    $("#to-placement").addEventListener("click", () => { Sound.click(); startPlacement(); });
+    $("#pace-levels").addEventListener("click", (e) => {
+      const chip = e.target.closest(".chip");
+      if (!chip) return;
+      state.settings.pace = chip.dataset.pace;
+      Sound.click();
+      renderSettings();
+    });
+    $("#opponent-modes").addEventListener("click", (e) => {
+      const chip = e.target.closest(".chip");
+      if (!chip || chip.dataset.mode === state.mode) return;
+      Sound.click();
+      if (chip.dataset.mode === "ai") Net.leave();
+      state.mode = chip.dataset.mode;
+      renderSettings();
+    });
+    $("#to-placement").addEventListener("click", () => {
+      Sound.click();
+      if (state.mode === "online") Net.send({ t: "setup", n: state.settings.n, fleet: state.settings.fleet });
+      startPlacement();
+    });
+  };
+
+  // ---------------------------------------------------------------- theme / help / install
+  const applyTheme = (name) => {
+    const t = THEMES.includes(name) ? name : THEMES[0];
+    document.documentElement.dataset.theme = t;
+    $('meta[name="theme-color"]').setAttribute("content", THEME_COLORS[t]);
+    document.querySelectorAll("#theme-chips .chip").forEach((c) => c.classList.toggle("active", c.dataset.theme === t));
+    storageSet(THEME_KEY, t);
+  };
+  const bindChrome = () => {
+    applyTheme(storageGet(THEME_KEY) || THEMES[0]);
+    $("#theme-chips").addEventListener("click", (e) => {
+      const chip = e.target.closest(".chip");
+      if (!chip) return;
+      Sound.click();
+      applyTheme(chip.dataset.theme);
+    });
+    $("#theme-toggle").addEventListener("click", () => {
+      Sound.click();
+      applyTheme(THEMES[(THEMES.indexOf(document.documentElement.dataset.theme) + 1) % THEMES.length]);
+    });
+
+    const help = $("#help");
+    const openHelp = () => { Sound.click(); if (typeof help.showModal === "function") help.showModal(); else help.setAttribute("open", ""); };
+    $("#help-btn").addEventListener("click", openHelp);
+    $("#help-link").addEventListener("click", openHelp);
+    $("#help-close").addEventListener("click", () => help.close());
+    help.addEventListener("click", (e) => { if (e.target === help) help.close(); });
+
+    let installPrompt = null;
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      installPrompt = e;
+      $("#install-bar").classList.add("show");
+    });
+    $("#install-btn").addEventListener("click", async () => {
+      if (!installPrompt) return;
+      installPrompt.prompt();
+      await installPrompt.userChoice;
+      installPrompt = null;
+      $("#install-bar").classList.remove("show");
+    });
+    window.addEventListener("appinstalled", () => $("#install-bar").classList.remove("show"));
+    if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+      navigator.serviceWorker.register("sw.js").catch(() => { /* offline support optional */ });
+    }
   };
 
   // ---------------------------------------------------------------- board rendering
@@ -412,7 +544,8 @@
     for (const [k, v] of board.shots) {
       const r = Math.floor(k / 100), c = k % 100;
       cells[r][c].classList.add(v);
-      if (v === "hit" && board.occ.get(k).sunk) cells[r][c].classList.add("sunk", "ship");
+      const s = board.occ.get(k);
+      if (v === "hit" && s && s.sunk) cells[r][c].classList.add("sunk", "ship");
     }
   };
 
@@ -430,6 +563,7 @@
     state.player.ships = buildShips(fleet);
     state.selectedShip = null;
     state.match++;
+    state.ready = { me: false, them: false };
     placeCells = buildGrid(placeBoardEl, n);
     renderPlacement();
     screens.show("placement");
@@ -448,7 +582,12 @@
       for (let i = 0; i < s.len; i++) d.appendChild(el("i"));
       dockEl.appendChild(d);
     }
-    $("#start-btn").disabled = !b.allPlaced;
+    const start = $("#start-btn");
+    start.disabled = !b.allPlaced || state.ready.me;
+    start.innerHTML = state.ready.me ? "WAITING FOR OPPONENT…" : "ENGAGE &raquo;";
+    const rs = $("#ready-status");
+    rs.hidden = state.mode !== "online";
+    rs.textContent = state.ready.them ? "Opponent is ready and waiting for you." : (state.ready.me ? "Opponent is still deploying." : "");
   };
 
   const cellMetrics = () => {
@@ -589,7 +728,22 @@
     $("#random-btn").addEventListener("click", () => { state.player.randomize(); state.selectedShip = null; Sound.place(); renderPlacement(); });
     $("#clear-btn").addEventListener("click", () => { state.player.clear(); state.selectedShip = null; Sound.click(); renderPlacement(); });
     $("#back-settings").addEventListener("click", () => screens.show("settings"));
-    $("#start-btn").addEventListener("click", () => { if (state.player.allPlaced) startBattle(); });
+    $("#start-btn").addEventListener("click", () => {
+      if (!state.player.allPlaced || state.ready.me) return;
+      Sound.click();
+      if (state.mode !== "online") return startBattle("player");
+      state.ready.me = true;
+      Net.send({ t: "ready" });
+      renderPlacement();
+      maybeStartOnline();
+    });
+  };
+
+  const maybeStartOnline = () => {
+    if (!(state.ready.me && state.ready.them) || Net.role !== "host") return;
+    const first = rnd(2) ? "host" : "guest";
+    Net.send({ t: "start", first });
+    startBattle(first === "host" ? "player" : "enemy");
   };
 
   // ---------------------------------------------------------------- battle screen
@@ -597,22 +751,28 @@
   const enemyBoardEl = $("#enemy-board");
   const ownBoardEl = $("#own-board");
 
-  const startBattle = () => {
+  const startBattle = (firstTurn = "player") => {
     const { n, fleet, level } = state.settings;
-    state.enemy = new Board(n);
-    state.enemy.ships = buildShips(fleet);
-    state.enemy.randomize();
-    state.ai = new AI(state.player, level, fleet);
-    state.turn = "player";
-    state.busy = false;
+    const online = state.mode === "online";
+    if (online) {
+      state.enemy = new RemoteBoard(n, fleet);
+      state.ai = null;
+    } else {
+      state.enemy = new Board(n);
+      state.enemy.ships = buildShips(fleet);
+      state.enemy.randomize();
+      state.ai = new AI(state.player, level, fleet);
+    }
+    state.turn = firstTurn;
+    state.busy = firstTurn !== "player";
     state.over = false;
     state.match++;
     state.stats = { shots: 0, hits: 0, enemyShots: 0, enemyHits: 0, started: Date.now() };
     enemyCells = buildGrid(enemyBoardEl, n, true);
     ownCells = buildGrid(ownBoardEl, n);
     renderBattle();
-    setMessage("Select a target on the enemy grid.");
-    setTurn("player");
+    setMessage(firstTurn === "player" ? "Select a target on the enemy grid." : "The enemy won the coin toss and fires first.");
+    setTurn(firstTurn);
     screens.show("battle");
   };
 
@@ -638,7 +798,8 @@
   const setMessage = (text, cls = "") => { const m = $("#message"); m.textContent = text; m.className = `message ${cls}`; };
   const setTurn = (who) => {
     const t = $("#turn-indicator");
-    t.textContent = who === "player" ? "YOUR TURN" : "ENEMY FIRING…";
+    const online = state.mode === "online";
+    t.textContent = who === "player" ? "YOUR TURN" : (online ? "OPPONENT'S TURN" : "ENEMY FIRING…");
     t.className = `turn ${who === "player" ? "you" : "enemy"}`;
     enemyBoardEl.classList.toggle("disabled", who !== "player");
     enemyBoardEl.classList.toggle("sweep", who !== "player");
@@ -651,53 +812,86 @@
   };
 
   const coord = (r, c) => `${String.fromCharCode(65 + r)}${c + 1}`;
+  const foe = () => (state.mode === "online" ? "Opponent" : "Enemy");
 
-  const playerFire = async (r, c) => {
-    if (state.busy || state.over || state.turn !== "player") return;
-    const res = state.enemy.fire(r, c);
-    if (!res) return;
-    state.busy = true;
-    state.stats.shots++;
-    const match = state.match;
+  // Shows the outcome of the player's shot at (r, c); returns false if the match changed meanwhile.
+  const presentPlayerShot = async (r, c, res, match) => {
     Sound.fire();
-    await sleep(180);
-    if (match !== state.match) return;
+    await sleep(paceMs(180));
+    if (match !== state.match) return false;
     if (res.result === "miss") { Sound.miss(); setMessage(`${coord(r, c)} — Miss.`); }
     else {
       state.stats.hits++;
-      if (res.result === "sunk") { Sound.sunk(); setMessage(`${coord(r, c)} — You sank the enemy ${res.ship.name}!`, "sunk"); }
+      if (res.result === "sunk") { Sound.sunk(); setMessage(`${coord(r, c)} — You sank the ${foe().toLowerCase()} ${res.ship.name}!`, "sunk"); }
       else { Sound.hit(); setMessage(`${coord(r, c)} — Direct hit!`, "hit"); }
     }
     fx(enemyCells[r][c], res.result);
     renderBattle();
+    return true;
+  };
+
+  const playerFire = async (r, c) => {
+    if (state.busy || state.over || state.turn !== "player") return;
+    if (state.enemy.shots.has(key(r, c))) return;
+    state.busy = true;
+    state.stats.shots++;
+    const match = state.match;
+    if (state.mode === "online") {
+      state.pendingShot = { r, c, match };
+      Net.send({ t: "fire", r, c });
+      state.turn = "enemy";
+      setTurn("enemy");
+      Sound.fire();
+      return;
+    }
+    const res = state.enemy.fire(r, c);
+    if (!(await presentPlayerShot(r, c, res, match))) return;
     if (state.enemy.allSunk) return endGame(true);
     state.turn = "enemy";
     setTurn("enemy");
-    await sleep(AI_DELAY);
+    await sleep(paceMs(750));
     if (match !== state.match) return;
-    await enemyTurn();
+    await presentEnemyShot(...state.ai.pick());
   };
 
-  const enemyTurn = async () => {
-    const [r, c] = state.ai.pick();
+  // Resolves an online shot once the opponent reports what we hit.
+  const onShotResult = async (msg) => {
+    const p = state.pendingShot;
+    if (!p || p.match !== state.match || p.r !== msg.r || p.c !== msg.c) return;
+    state.pendingShot = null;
+    const res = state.enemy.apply(msg.r, msg.c, msg);
+    if (!(await presentPlayerShot(msg.r, msg.c, res, p.match))) return;
+    if (state.enemy.allSunk) return endGame(true);
+    setMessage(`${$("#message").textContent} Waiting for ${foe().toLowerCase()}…`, $("#message").classList[1] || "");
+  };
+
+  const presentEnemyShot = async (r, c) => {
     const res = state.player.fire(r, c);
+    if (!res) return;
     state.stats.enemyShots++;
     const match = state.match;
+    if (state.mode === "online") {
+      const ship = res.ship ? { len: res.ship.len, name: res.ship.name, cells: res.result === "sunk" ? res.ship.cells() : undefined } : null;
+      Net.send({ t: "result", r, c, result: res.result, ship });
+    }
     Sound.fire();
-    await sleep(200);
+    await sleep(paceMs(200));
     if (match !== state.match) return;
-    if (res.result === "miss") { Sound.miss(); setMessage(`Enemy fires at ${coord(r, c)} — splash.`); }
+    if (res.result === "miss") { Sound.miss(); setMessage(`${foe()} fires at ${coord(r, c)} — splash.`); }
     else {
       state.stats.enemyHits++;
       ownBoardEl.classList.add("shake");
       setTimeout(() => ownBoardEl.classList.remove("shake"), 400);
-      if (res.result === "sunk") { Sound.sunk(); state.ai.notifySunk(res.ship.len); setMessage(`Enemy fires at ${coord(r, c)} — your ${res.ship.name} is sunk!`, "sunk"); }
-      else { Sound.hit(); setMessage(`Enemy fires at ${coord(r, c)} — you're hit!`, "hit"); }
+      if (res.result === "sunk") {
+        Sound.sunk();
+        if (state.ai) state.ai.notifySunk(res.ship.len);
+        setMessage(`${foe()} fires at ${coord(r, c)} — your ${res.ship.name} is sunk!`, "sunk");
+      } else { Sound.hit(); setMessage(`${foe()} fires at ${coord(r, c)} — you're hit!`, "hit"); }
     }
     fx(ownCells[r][c], res.result);
     renderBattle();
     if (state.player.allSunk) return endGame(false);
-    await sleep(400);
+    await sleep(paceMs(500));
     if (match !== state.match) return;
     state.turn = "player";
     state.busy = false;
@@ -709,26 +903,27 @@
     state.busy = true;
     renderBattle();
     setTurn(won ? "player" : "enemy");
-    setMessage(won ? "Enemy fleet destroyed." : "Your fleet has been lost.", won ? "sunk" : "hit");
+    setMessage(won ? `${foe()} fleet destroyed.` : "Your fleet has been lost.", won ? "sunk" : "hit");
     won ? Sound.win() : Sound.lose();
     const match = state.match;
-    await sleep(1600);
+    await sleep(paceMs(1600));
     if (match !== state.match) return;
     const st = state.stats;
     const secs = Math.round((Date.now() - st.started) / 1000);
     $("#over-title").textContent = won ? "VICTORY" : "DEFEAT";
     $("#over-title").className = won ? "" : "defeat";
     $("#over-sub").textContent = won
-      ? `You sank all ${state.enemy.ships.length} enemy vessels in ${st.shots} shots.`
-      : `The enemy sank your fleet in ${st.enemyShots} shots. ${state.enemy.remaining} of theirs remained.`;
+      ? `You sank all ${state.enemy.ships.length} ${foe().toLowerCase()} vessels in ${st.shots} shots.`
+      : `The ${foe().toLowerCase()} sank your fleet in ${st.enemyShots} shots. ${state.enemy.remaining} of theirs remained.`;
     const acc = (h, s) => (s ? Math.round((100 * h) / s) : 0);
+    const who = state.mode === "online" ? "Friend online" : $("#ai-levels .chip.active").textContent;
     $("#over-stats").innerHTML = `
       <dt>Your shots</dt><dd>${st.shots}</dd>
       <dt>Your accuracy</dt><dd>${acc(st.hits, st.shots)}%</dd>
-      <dt>Enemy shots</dt><dd>${st.enemyShots}</dd>
-      <dt>Enemy accuracy</dt><dd>${acc(st.enemyHits, st.enemyShots)}%</dd>
+      <dt>${foe()} shots</dt><dd>${st.enemyShots}</dd>
+      <dt>${foe()} accuracy</dt><dd>${acc(st.enemyHits, st.enemyShots)}%</dd>
       <dt>Duration</dt><dd>${Math.floor(secs / 60)}m ${secs % 60}s</dd>
-      <dt>Grid / Commander</dt><dd>${state.settings.n}×${state.settings.n} / ${$("#ai-levels .chip.active").textContent}</dd>`;
+      <dt>Grid / Opponent</dt><dd>${state.settings.n}×${state.settings.n} / ${who}</dd>`;
     screens.show("over");
   };
 
@@ -746,18 +941,178 @@
       playerFire(+cell.dataset.r, +cell.dataset.c);
     });
     $("#play-again").addEventListener("click", () => { Sound.click(); startPlacement(); });
-    $("#over-settings").addEventListener("click", () => screens.show("settings"));
-    $("#restart-btn").addEventListener("click", () => { Sound.click(); state.match++; screens.show("settings"); });
+    $("#over-settings").addEventListener("click", () => { state.match++; screens.show("settings"); renderSettings(); });
+    $("#restart-btn").addEventListener("click", () => { Sound.click(); state.match++; screens.show("settings"); renderSettings(); });
     const st = $("#sound-toggle");
     const paint = () => { st.classList.toggle("muted", !Sound.enabled); st.textContent = Sound.enabled ? "SFX ON" : "SFX OFF"; };
     st.addEventListener("click", () => { Sound.toggle(); paint(); });
     paint();
   };
 
+  // ---------------------------------------------------------------- online (WebRTC via PeerJS)
+  const Net = (() => {
+    const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const api = { role: null, connected: false, code: null };
+    let peer = null, conn = null;
+
+    const statusEl = () => $("#online-status");
+    const status = (text, err = false, spin = false) => {
+      const s = statusEl();
+      s.className = `status ${err ? "err" : ""}`;
+      s.innerHTML = (spin ? '<span class="spinner"></span>' : "") + text;
+    };
+    const view = () => {
+      $("#online-idle").hidden = api.role !== null;
+      $("#online-hosting").hidden = api.role !== "host";
+      $("#online-cancel").hidden = api.role === null;
+      renderSettings();
+    };
+    const roomUrl = (code) => `${location.origin}${location.pathname}?room=${code}`;
+    const newCode = () => Array.from({ length: 4 }, () => CODE_CHARS[rnd(CODE_CHARS.length)]).join("");
+
+    const teardown = () => {
+      if (conn) { conn.removeAllListeners && conn.removeAllListeners(); try { conn.close(); } catch (_) { /* already closed */ } }
+      if (peer) { try { peer.destroy(); } catch (_) { /* already destroyed */ } }
+      conn = null; peer = null;
+      api.connected = false; api.role = null; api.code = null;
+    };
+
+    const attach = (c) => {
+      conn = c;
+      c.on("open", () => {
+        api.connected = true;
+        status("Connected. " + (api.role === "host" ? "Set the grid and fleet, then deploy." : "Waiting for the host to pick the grid and fleet…"));
+        Sound.place();
+        view();
+      });
+      c.on("data", (msg) => handle(msg));
+      c.on("close", () => onLost("Opponent disconnected."));
+      c.on("error", () => onLost("Connection error."));
+    };
+
+    const onLost = (why) => {
+      const wasConnected = api.connected;
+      teardown();
+      state.match++;
+      state.mode = "online";
+      screens.show("settings");
+      view();
+      status(why + (wasConnected ? " You can create a new room or join another." : ""), true);
+    };
+
+    const handle = (msg) => {
+      if (!msg || typeof msg !== "object") return;
+      switch (msg.t) {
+        case "setup":
+          if (api.role !== "guest") return;
+          state.settings.n = msg.n;
+          state.settings.fleet = { ...msg.fleet };
+          state.settings.preset = "custom";
+          renderSettings();
+          startPlacement();
+          break;
+        case "ready":
+          state.ready.them = true;
+          renderPlacement();
+          maybeStartOnline();
+          break;
+        case "start":
+          if (api.role !== "guest") return;
+          startBattle(msg.first === "guest" ? "player" : "enemy");
+          break;
+        case "fire":
+          if (state.over || state.turn !== "enemy") return;
+          presentEnemyShot(msg.r, msg.c);
+          break;
+        case "result":
+          onShotResult(msg);
+          break;
+        default:
+          break;
+      }
+    };
+
+    const ensurePeerLib = () => {
+      if (typeof window.Peer === "function") return true;
+      status("Online play needs an internet connection to load. Retry in a moment.", true);
+      return false;
+    };
+
+    api.host = () => {
+      if (!ensurePeerLib()) return;
+      teardown();
+      api.role = "host";
+      api.code = newCode();
+      status("Opening room…", false, true);
+      view();
+      peer = new window.Peer(PEER_PREFIX + api.code);
+      peer.on("open", () => {
+        $("#room-code").textContent = api.code;
+        $("#room-url").value = roomUrl(api.code);
+        $("#share-btn").hidden = !navigator.share;
+        status("Waiting for a friend to join…", false, true);
+      });
+      peer.on("connection", (c) => {
+        if (conn) { c.close(); return; }
+        attach(c);
+      });
+      peer.on("error", (err) => {
+        if (err.type === "unavailable-id") { api.host(); return; }
+        onLost(`Could not open a room (${err.type}).`);
+      });
+    };
+
+    api.join = (code) => {
+      code = (code || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+      if (code.length < 4) { status("Enter the 4-character room code.", true); return; }
+      if (!ensurePeerLib()) return;
+      teardown();
+      api.role = "guest";
+      api.code = code;
+      status(`Joining room ${code}…`, false, true);
+      view();
+      peer = new window.Peer();
+      peer.on("open", () => attach(peer.connect(PEER_PREFIX + code, { reliable: true })));
+      peer.on("error", (err) => {
+        if (err.type === "peer-unavailable") onLost(`Room ${code} not found. Check the code with your friend.`);
+        else onLost(`Could not connect (${err.type}).`);
+      });
+    };
+
+    api.send = (msg) => { if (conn && conn.open) conn.send(msg); };
+    api.leave = () => { teardown(); status(""); view(); };
+
+    api.bind = () => {
+      $("#host-btn").addEventListener("click", () => { Sound.click(); api.host(); });
+      $("#join-btn").addEventListener("click", () => { Sound.click(); api.join($("#join-code").value); });
+      $("#join-code").addEventListener("keydown", (e) => { if (e.key === "Enter") api.join(e.target.value); });
+      $("#online-cancel").addEventListener("click", () => { Sound.click(); api.leave(); });
+      $("#copy-btn").addEventListener("click", async () => {
+        const url = $("#room-url").value;
+        try { await navigator.clipboard.writeText(url); status("Link copied — send it to your friend.", false, true); }
+        catch (_) { $("#room-url").select(); status("Select the link and copy it.", false, true); }
+      });
+      $("#share-btn").addEventListener("click", () => {
+        navigator.share({ title: "Battleships", text: `Join my Battleships game — room ${api.code}`, url: $("#room-url").value }).catch(() => { /* cancelled */ });
+      });
+      const room = new URLSearchParams(location.search).get("room");
+      if (room) {
+        state.mode = "online";
+        $("#join-code").value = room.toUpperCase();
+        history.replaceState(null, "", location.pathname);
+        renderSettings();
+        api.join(room);
+      }
+    };
+    return api;
+  })();
+
   // ---------------------------------------------------------------- init
   loadSettings();
   bindSettings();
   bindPlacement();
   bindBattle();
+  bindChrome();
   renderSettings();
+  Net.bind();
 })();
