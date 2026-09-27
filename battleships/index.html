@@ -4,6 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="theme-color" content="#04110a">
+  <meta name="description" content="Battleships: play the classic naval strategy game against an AI commander or a friend online.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Battleships">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
   <title>BATTLESHIPS // RADAR</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -13,6 +20,8 @@
   <header class="topbar">
     <h1 class="logo"><span class="blink">&#9679;</span> BATTLESHIPS <small>// RADAR OPS</small></h1>
     <div class="topbar-actions">
+      <button id="help-btn" class="icon-btn" aria-label="How to play" title="How to play">? HELP</button>
+      <button id="theme-toggle" class="icon-btn" aria-label="Change theme" title="Change theme">&#9681;</button>
       <button id="sound-toggle" class="icon-btn" aria-label="Toggle sound" title="Toggle sound">&#128266;</button>
       <button id="restart-btn" class="icon-btn" aria-label="New game" title="New game">&#8635;</button>
     </div>
@@ -24,6 +33,38 @@
     <section id="screen-settings" class="screen active">
       <div class="panel">
         <h2>MISSION PARAMETERS</h2>
+        <p class="hint">First time? <button id="help-link" class="link inline">Read the how-to-play guide</button></p>
+
+        <div class="field">
+          <label>Opponent</label>
+          <div class="chip-row" id="opponent-modes">
+            <button class="chip active" data-mode="ai">Computer</button>
+            <button class="chip" data-mode="online">Friend online</button>
+          </div>
+          <div id="online-box" class="online-box" hidden>
+            <div id="online-idle">
+              <p class="hint">Create a room and send the link to a friend, or paste a code they sent you. You choose the grid and fleet; your friend gets the same setup.</p>
+              <div class="btn-row">
+                <button id="host-btn" class="secondary">Create room</button>
+              </div>
+              <div class="room-link">
+                <input id="join-code" placeholder="Room code, e.g. K7Q2" maxlength="8" autocapitalize="characters" autocomplete="off" spellcheck="false">
+                <button id="join-btn" class="secondary">Join</button>
+              </div>
+            </div>
+            <div id="online-hosting" hidden>
+              <p class="hint">Room code</p>
+              <div class="room-code" id="room-code"></div>
+              <div class="room-link">
+                <input id="room-url" readonly>
+                <button id="copy-btn" class="secondary">Copy</button>
+                <button id="share-btn" class="secondary" hidden>Share</button>
+              </div>
+            </div>
+            <p class="status" id="online-status"></p>
+            <button id="online-cancel" class="link" hidden>cancel</button>
+          </div>
+        </div>
 
         <div class="field">
           <label for="board-size">Grid size <output id="board-size-out">10 &times; 10</output></label>
@@ -45,17 +86,45 @@
           <div id="fleet-rows"></div>
         </div>
 
-        <div class="field">
+        <div class="field" id="ai-field">
           <label>Enemy commander</label>
           <div class="chip-row" id="ai-levels">
             <button class="chip" data-level="easy">Cadet</button>
             <button class="chip active" data-level="normal">Captain</button>
             <button class="chip" data-level="hard">Admiral</button>
           </div>
+          <div class="meter" id="level-meter">
+            <span class="bars"><i></i><i></i><i></i></span>
+            <span class="meter-label" id="level-label"></span>
+          </div>
+          <p class="level-desc" id="level-desc"></p>
+        </div>
+
+        <div class="field" id="pace-field">
+          <label>Game pace</label>
+          <div class="chip-row" id="pace-levels">
+            <button class="chip" data-pace="relaxed">Relaxed</button>
+            <button class="chip active" data-pace="normal">Standard</button>
+            <button class="chip" data-pace="fast">Rapid</button>
+          </div>
+          <p class="level-desc" id="pace-desc"></p>
+        </div>
+
+        <div class="field">
+          <label>Display</label>
+          <div class="chip-row" id="theme-chips">
+            <button class="chip" data-theme="radar">Radar green</button>
+            <button class="chip" data-theme="amber">Amber CRT</button>
+            <button class="chip" data-theme="daylight">Daylight</button>
+          </div>
         </div>
 
         <p class="warn" id="settings-warn" hidden></p>
         <button id="to-placement" class="primary big">DEPLOY FLEET &raquo;</button>
+      </div>
+      <div class="install-bar" id="install-bar">
+        <span>Install Battleships on this device for full-screen, offline play.</span>
+        <button id="install-btn" class="secondary">Install app</button>
       </div>
     </section>
 
@@ -76,6 +145,7 @@
             <button id="clear-btn" class="secondary">&#10005; Clear</button>
           </div>
           <button id="start-btn" class="primary big" disabled>ENGAGE &raquo;</button>
+          <p class="hint" id="ready-status" hidden></p>
           <button id="back-settings" class="link">&laquo; back to parameters</button>
         </aside>
       </div>
@@ -115,6 +185,62 @@
   </main>
 
   <div id="drag-ghost" class="drag-ghost" hidden></div>
-  <script src="game.js"></script>
+
+  <dialog id="help" class="help" aria-labelledby="help-title">
+    <div class="help-head">
+      <h2 id="help-title">HOW TO PLAY</h2>
+      <button id="help-close" class="icon-btn" aria-label="Close">&#10005;</button>
+    </div>
+    <div class="help-body">
+      <h3>THE IDEA</h3>
+      <p>Two fleets hide on two grids. You can't see the enemy's ships and they can't see yours. Take turns calling shots at squares; the first to sink every enemy ship wins.</p>
+
+      <h3>1. SET UP</h3>
+      <ul>
+        <li><b>Grid size</b> — bigger grids mean longer games. 10&times;10 is the classic.</li>
+        <li><b>Fleet</b> — which ships are in play. Classic is 1 Carrier (5), 1 Battleship (4), 2 Cruisers (3), 1 Destroyer (2). The number is how many squares the ship covers.</li>
+        <li><b>Enemy commander</b> — how clever the computer is. Start with Cadet.</li>
+        <li><b>Opponent</b> — play the computer, or create a room and send the link to a friend.</li>
+      </ul>
+
+      <h3>2. DEPLOY YOUR FLEET</h3>
+      <ul>
+        <li>Drag each ship from the Dry Dock onto your grid. Green preview = OK, red = overlaps or off the grid.</li>
+        <li>Tap a placed ship to select it, tap again (or press <b>Rotate</b>) to turn it.</li>
+        <li>Ships can touch but can't overlap. In a hurry? Press <b>Randomize</b>.</li>
+        <li>When every ship is placed, press <b>Engage</b>.</li>
+      </ul>
+
+      <h3>3. BATTLE</h3>
+      <p>On your turn, tap any square on <b>Enemy Waters</b> (the top grid). The result appears instantly:</p>
+      <div class="legend">
+        <span class="sw miss"></span><span><b>Miss</b> — nothing there. Try somewhere else.</span>
+        <span class="sw hit"></span><span><b>Hit</b> — part of a ship. Ships are straight lines, so try the squares next to it.</span>
+        <span class="sw sunk"></span><span><b>Sunk</b> — every square of that ship is hit. The fleet tracker crosses it off.</span>
+      </div>
+      <p>Then the enemy fires at <b>Your Fleet</b> (the lower grid). Squares can only be shot once.</p>
+
+      <h3>4. WINNING</h3>
+      <p>Sink all enemy ships before they sink yours. Your accuracy and shot count are shown at the end.</p>
+
+      <h3>BEGINNER TIPS</h3>
+      <ul>
+        <li>After a hit, fire at the four neighbouring squares until you find the ship's direction, then follow the line.</li>
+        <li>Searching in a checkerboard pattern finds every ship of length 2 or more with half the shots.</li>
+        <li>Keep track of which enemy ships are still afloat: if only the Destroyer (2) is left, tiny gaps can't hide anything.</li>
+        <li>Spread your own ships out; clustered fleets are found fast once one is hit.</li>
+      </ul>
+
+      <h3>CONTROLS</h3>
+      <ul>
+        <li>Mouse or touch: drag, tap, click.</li>
+        <li>Keyboard: <kbd>Tab</kbd> to a square, <kbd>Enter</kbd> or <kbd>Space</kbd> to fire.</li>
+        <li>Header: <b>? HELP</b> opens this guide, <b>&#9681;</b> cycles the display theme, <b>SFX</b> toggles sound, <b>&#8635;</b> starts over.</li>
+      </ul>
+    </div>
+  </dialog>
+
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
+  <script src="game.js" defer></script>
 </body>
 </html>
