@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import os
+from urllib.parse import urlparse
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -40,10 +41,27 @@ def ensure_keys() -> str:
     return _b64(raw)
 
 
+PUSH_HOST_SUFFIXES = (
+    "fcm.googleapis.com",
+    "android.googleapis.com",
+    "push.services.mozilla.com",
+    "notify.windows.com",
+    "push.apple.com",
+)
+
+
+def _allowed_push_host(hostname: str) -> bool:
+    hostname = hostname.lower()
+    return any(hostname == suffix or hostname.endswith("." + suffix) for suffix in PUSH_HOST_SUFFIXES)
+
+
 def save_subscription(subscription: dict) -> None:
     endpoint = subscription.get("endpoint")
     if not endpoint:
         raise ValueError("subscription is missing an endpoint")
+    host = urlparse(endpoint)
+    if host.scheme != "https" or not _allowed_push_host(host.hostname or ""):
+        raise ValueError("endpoint is not a recognised browser push service")
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO push_subscription (endpoint, subscription) VALUES (?, ?) "

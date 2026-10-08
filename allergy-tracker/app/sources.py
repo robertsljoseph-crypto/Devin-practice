@@ -1,11 +1,14 @@
 """Keyless data sources: pollen.com (pollen index + top triggers) and Open-Meteo (weather, air quality)."""
 
 import datetime as dt
+import logging
 from typing import Any
 
 import httpx
 
 from .config import LATITUDE, LONGITUDE, TIMEZONE, TIMEZONE_NAME, ZIP_CODE
+
+logger = logging.getLogger(__name__)
 
 POLLEN_BASE = "https://www.pollen.com/api/forecast"
 POLLEN_HEADERS = {
@@ -154,11 +157,16 @@ async def fetch_weather(
         resp.raise_for_status()
         _merge_daily(out, resp.json().get("daily", {}), mapping)
 
-    resp = await client.get(
-        WEATHER_FORECAST, params={**common, "past_days": 14, "forecast_days": 3}, timeout=60
-    )
-    resp.raise_for_status()
-    _merge_daily(out, resp.json().get("daily", {}), mapping)
+    try:
+        resp = await client.get(
+            WEATHER_FORECAST, params={**common, "past_days": 14, "forecast_days": 3}, timeout=60
+        )
+        resp.raise_for_status()
+        _merge_daily(out, resp.json().get("daily", {}), mapping)
+    except httpx.HTTPError:
+        if not out:
+            raise
+        logger.warning("weather forecast unavailable; keeping %d archived days", len(out))
     return {d: v for d, v in out.items() if start.isoformat() <= d <= (end + dt.timedelta(days=3)).isoformat()}
 
 

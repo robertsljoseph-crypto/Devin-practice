@@ -1,4 +1,4 @@
-const state = { meta: null, day: null, severities: {}, charts: {} };
+const state = { meta: null, day: null, severities: {}, charts: {}, loadingDate: null };
 
 const $ = (sel) => document.querySelector(sel);
 const api = async (path, options = {}) => {
@@ -53,8 +53,15 @@ function paintSeverities() {
   });
 }
 
+function esc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
 async function loadDay(date) {
+  state.loadingDate = date;
   const day = await api(`/api/day/${date}`);
+  if (state.loadingDate !== date || $("#log-date").value !== date) return;
+  state.loadingDate = null;
   state.day = day;
   state.severities = {};
   state.meta.symptoms.forEach(({ key }) => (state.severities[key] = day[key] ?? 0));
@@ -82,7 +89,7 @@ async function loadDay(date) {
 
   const triggers = day.pollen_triggers || [];
   $("#env-triggers").innerHTML = triggers.length
-    ? `Top pollens today: <b>${triggers.join(", ")}</b>`
+    ? `Top pollens today: <b>${esc(triggers.join(", "))}</b>`
     : "Top pollen contributors unavailable for this day.";
   $("#save-status").textContent = day.logged ? "Logged — you can update it any time." : "";
 }
@@ -98,9 +105,13 @@ async function saveDay(event) {
     $("#save-status").textContent = "That day hasn't happened yet.";
     return;
   }
+  if (state.loadingDate) {
+    $("#save-status").textContent = "Still loading that day — try again in a moment.";
+    return;
+  }
   const payload = {
     ...state.severities,
-    outdoor_minutes: Number($("#outdoor").value || 0),
+    outdoor_minutes: Math.max(0, Math.round(Number($("#outdoor").value) || 0)),
     medications: $("#medications").value,
     notes: $("#notes").value,
   };
@@ -150,7 +161,7 @@ async function loadHistory() {
     <tr><th>Date</th><th>Score</th><th>Pollen</th><th>Top pollens</th><th>PM2.5</th><th>Meds</th></tr>
     ${recent.map((r) => `<tr>
       <td>${r.date}</td><td>${r.score ?? "–"}</td><td>${r.pollen_index ?? "–"}</td>
-      <td>${(r.pollen_triggers || []).join(", ") || "–"}</td><td>${r.pm2_5 ?? "–"}</td><td>${r.medications || "–"}</td>
+      <td>${esc((r.pollen_triggers || []).join(", ")) || "–"}</td><td>${r.pm2_5 ?? "–"}</td><td>${esc(r.medications) || "–"}</td>
     </tr>`).join("")}`;
 }
 
@@ -197,7 +208,7 @@ async function loadInsights() {
 
   $("#worst-days").innerHTML = data.worst_days.length
     ? data.worst_days.map((d) => `<div class="bar-row"><span>${d.date}</span>
-        <span>${(d.triggers || []).join(", ") || "–"}</span><span class="val">${d.score}</span></div>`).join("")
+        <span>${esc((d.triggers || []).join(", ")) || "–"}</span><span class="val">${d.score}</span></div>`).join("")
     : "<p class='hint'>No logs yet.</p>";
 }
 

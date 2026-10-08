@@ -1,7 +1,10 @@
+import asyncio
 import datetime as dt
 import hashlib
 import logging
 import os
+import secrets
+import time
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -12,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import analysis, db, ingest, push, sources
-from .config import PASSCODE, SYMPTOMS, TIMEZONE, ZIP_CODE
+from .config import PASSCODE, SYMPTOM_KEYS, SYMPTOMS, TIMEZONE, ZIP_CODE
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -28,8 +31,49 @@ def passcode() -> str:
     return PASSCODE or (db.get_setting("passcode", "") or "")
 
 
+def _session_secret() -> str:
+    secret = db.get_setting("session_secret", "")
+    if not secret:
+        secret = secrets.token_hex(32)
+        db.set_setting("session_secret", secret)
+    return secret
+
+
 def _token() -> str:
-    return hashlib.sha256(f"allergy-tracker:{passcode()}".encode()).hexdigest()
+    return hashlib.sha256(f"{_session_secret()}:{passcode()}".encode()).hexdigest()
+
+
+_login_failures: list[float] = []
+LOGIN_MAX_FAILURES = 10
+LOGIN_WINDOW_SECONDS = 15 * 60
+
+
+def _login_throttled() -> bool:
+    cutoff = time.monotonic() - LOGIN_WINDOW_SECONDS
+    _login_failures[:] = [t for t in _login_failures if t > cutoff]
+    return len(_login_failures) >= LOGIN_MAX_FAILURES
+
+
+def _validate_log(payload: dict[str, Any]) -> dict[str, Any]:
+    clean: dict[str, Any] = {}
+    for key in SYMPTOM_KEYS:
+        if key in payload:
+            value = payload[key]
+            if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 3:
+                raise HTTPException(status_code=400, detail=f"{key} must be an integer from 0 to 3")
+            clean[key] = value
+    if "outdoor_minutes" in payload:
+        minutes = payload["outdoor_minutes"]
+        if minutes is not None and (isinstance(minutes, bool) or not isinstance(minutes, int) or minutes < 0):
+            raise HTTPException(status_code=400, detail="outdoor_minutes must be a non-negative integer")
+        clean["outdoor_minutes"] = minutes
+    for key in ("medications", "notes"):
+        if key in payload:
+            value = payload[key]
+            if value is not None and not isinstance(value, str):
+                raise HTTPException(status_code=400, detail=f"{key} must be text")
+            clean[key] = value
+    return clean
 
 
 def require_auth(request: Request) -> None:
@@ -66,13 +110,20 @@ async def reminder_job() -> None:
 
 
 def schedule_jobs() -> None:
-    scheduler.add_job(daily_refresh_job, CronTrigger(hour=6, minute=15), id="refresh", replace_existing=True)
+    scheduler.add_job(daily_refresh_job, CronTrigger(hour=6, minute=15, timezone=TIMEZONE), id="refresh", replace_existing=True)
     scheduler.add_job(
         reminder_job,
-        CronTrigger(hour=reminder_hour(), minute=0),
+        CronTrigger(hour=reminder_hour(), minute=0, timezone=TIMEZONE),
         id="reminder",
         replace_existing=True,
     )
+
+
+async def _startup_refresh() -> None:
+    try:
+        logger.info("startup refresh: %s", await ingest.refresh(days_back=30))
+    except Exception as exc:  # noqa: BLE001 - never block startup on a flaky upstream
+        logger.warning("startup refresh failed: %s", exc)
 
 
 @asynccontextmanager
@@ -81,11 +132,9 @@ async def lifespan(app: FastAPI):
     push.ensure_keys()
     schedule_jobs()
     scheduler.start()
-    try:
-        await ingest.refresh(days_back=30)
-    except Exception as exc:  # noqa: BLE001 - never block startup on a flaky upstream
-        logger.warning("startup refresh failed: %s", exc)
+    startup_refresh = asyncio.create_task(_startup_refresh())
     yield
+    startup_refresh.cancel()
     scheduler.shutdown(wait=False)
 
 
@@ -105,7 +154,10 @@ async def login(response: Response, payload: dict = Body(...)) -> dict[str, bool
         if len(supplied) < 4:
             raise HTTPException(status_code=400, detail="Choose a passcode of at least 4 characters")
         db.set_setting("passcode", supplied)
-    elif supplied != current:
+    elif _login_throttled():
+        raise HTTPException(status_code=429, detail="Too many attempts; try again in 15 minutes")
+    elif not secrets.compare_digest(supplied, current):
+        _login_failures.append(time.monotonic())
         raise HTTPException(status_code=401, detail="Wrong passcode")
     response.set_cookie(
         SESSION_COOKIE, _token(), max_age=60 * 60 * 24 * 365, httponly=True, samesite="lax", secure=True
@@ -145,7 +197,8 @@ async def save_day(date: str, payload: dict = Body(...)) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="Invalid date") from None
     if parsed > ingest.today_local():
         raise HTTPException(status_code=400, detail="Cannot log a day that hasn't happened yet")
-    db.upsert_symptom_log(date, payload)
+    date = parsed.isoformat()
+    db.upsert_symptom_log(date, _validate_log(payload))
     return await get_day(date)
 
 
@@ -182,7 +235,10 @@ async def backfill(years: int = 2) -> dict[str, Any]:
 
 @app.post("/api/push/subscribe", dependencies=[Depends(require_auth)])
 async def subscribe(subscription: dict = Body(...)) -> dict[str, bool]:
-    push.save_subscription(subscription)
+    try:
+        push.save_subscription(subscription)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     return {"ok": True}
 
 
@@ -203,7 +259,7 @@ async def set_reminder(payload: dict = Body(...)) -> dict[str, int]:
     if not 0 <= hour <= 23:
         raise HTTPException(status_code=400, detail="hour must be 0-23")
     db.set_setting("reminder_hour", str(hour))
-    scheduler.add_job(reminder_job, CronTrigger(hour=hour, minute=0), id="reminder", replace_existing=True)
+    scheduler.add_job(reminder_job, CronTrigger(hour=hour, minute=0, timezone=TIMEZONE), id="reminder", replace_existing=True)
     return {"hour": hour}
 
 
