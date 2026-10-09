@@ -11,6 +11,7 @@
   const MAX_FILL = 0.4;
   const STORAGE_KEY = "battleships.settings.v2";
   const THEME_KEY = "battleships.theme";
+  const WELCOME_KEY = "battleships.skipWelcome";
   const THEMES = ["radar", "amber", "daylight"];
   const THEME_COLORS = { radar: "#04110a", amber: "#120a02", daylight: "#e8f1f5" };
   // multipliers applied to every battle delay (shot travel, AI "thinking", turn hand-over)
@@ -479,10 +480,23 @@
       applyTheme(THEMES[(THEMES.indexOf(document.documentElement.dataset.theme) + 1) % THEMES.length]);
     });
 
+    const skip = $("#skip-welcome");
+    skip.checked = storageGet(WELCOME_KEY) === "1";
+    skip.addEventListener("change", () => storageSet(WELCOME_KEY, skip.checked ? "1" : "0"));
+    const enter = (mode) => {
+      Sound.click();
+      if (mode !== state.mode) { if (mode === "ai") Net.leave(); state.mode = mode; }
+      renderSettings();
+      screens.show("settings");
+    };
+    $("#welcome-ai").addEventListener("click", () => enter("ai"));
+    $("#welcome-online").addEventListener("click", () => enter("online"));
+    $("#logo-btn").addEventListener("click", () => { Sound.click(); screens.show("welcome"); });
     const help = $("#help");
     const openHelp = () => { Sound.click(); if (typeof help.showModal === "function") help.showModal(); else help.setAttribute("open", ""); };
     $("#help-btn").addEventListener("click", openHelp);
     $("#help-link").addEventListener("click", openHelp);
+    $("#welcome-help").addEventListener("click", openHelp);
     $("#help-close").addEventListener("click", () => help.close());
     help.addEventListener("click", (e) => { if (e.target === help) help.close(); });
 
@@ -1131,5 +1145,6 @@
   bindBattle();
   bindChrome();
   renderSettings();
+  if (storageGet(WELCOME_KEY) !== "1" && !new URLSearchParams(location.search).get("room")) screens.show("welcome");
   Net.bind();
 })();

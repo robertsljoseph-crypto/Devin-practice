@@ -1,7 +1,7 @@
 {
-  "name": "Battleships",
+  "name": "Joseph Roberts's Battleship Game",
   "short_name": "Battleships",
-  "description": "Retro radar Battleships — play the computer or a friend online.",
+  "description": "Joseph Roberts's retro radar Battleships — play the computer or a friend online.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
