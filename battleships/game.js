@@ -491,7 +491,7 @@
     };
     $("#welcome-ai").addEventListener("click", () => enter("ai"));
     $("#welcome-online").addEventListener("click", () => enter("online"));
-    $("#logo-btn").addEventListener("click", () => { Sound.click(); screens.show("welcome"); });
+    $("#logo-btn").addEventListener("click", () => { Sound.click(); state.match++; Net.leave(); screens.show("welcome"); });
     const help = $("#help");
     const openHelp = () => { Sound.click(); if (typeof help.showModal === "function") help.showModal(); else help.setAttribute("open", ""); };
     $("#help-btn").addEventListener("click", openHelp);
