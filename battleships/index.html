@@ -4,21 +4,24 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="theme-color" content="#04110a">
-  <meta name="description" content="Battleships: play the classic naval strategy game against an AI commander or a friend online.">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Battleships">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <title>BATTLESHIPS // RADAR</title>
+  <title>Joseph Roberts's Battleship Game</title>
+  <meta name="description" content="Joseph Roberts's Battleship Game — retro radar Battleships. Play the computer or a friend online, free in your browser.">
+  <meta property="og:title" content="Joseph Roberts's Battleship Game">
+  <meta property="og:description" content="Retro radar Battleships — play the computer or challenge a friend online.">
+  <meta property="og:image" content="icons/icon-512.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="scanlines" aria-hidden="true"></div>
 
   <header class="topbar">
-    <h1 class="logo"><span class="blink">&#9679;</span> BATTLESHIPS <small>// RADAR OPS</small></h1>
+    <h1 class="logo"><button id="logo-btn" class="logo-btn" title="Welcome screen"><span class="blink">&#9679;</span> BATTLESHIPS <small>// RADAR OPS</small></button></h1>
     <div class="topbar-actions">
       <button id="help-btn" class="icon-btn" aria-label="How to play" title="How to play">? HELP</button>
       <button id="theme-toggle" class="icon-btn" aria-label="Change theme" title="Change theme">&#9681;</button>
@@ -28,6 +31,31 @@
   </header>
 
   <main id="app">
+
+    <!-- WELCOME -->
+    <section id="screen-welcome" class="screen">
+      <div class="panel center welcome">
+        <div class="radar" aria-hidden="true"><span class="sweep"></span></div>
+        <p class="eyebrow">// INCOMING TRANSMISSION</p>
+        <h2 class="welcome-title">Welcome to Joseph Roberts's Battleship Game</h2>
+        <p class="hint">Hunt down the enemy fleet before they sink yours. Play in your browser — nothing to install.</p>
+        <div class="mode-cards">
+          <button class="mode-card" id="welcome-ai">
+            <span class="mode-icon" aria-hidden="true">[ AI ]</span>
+            <strong>PLAY THE COMPUTER</strong>
+            <small>Three commanders: Cadet, Captain, Admiral</small>
+          </button>
+          <button class="mode-card" id="welcome-online">
+            <span class="mode-icon" aria-hidden="true">(( &#9679; ))</span>
+            <strong>PLAY A FRIEND ONLINE</strong>
+            <small>Share a link or room code — they join from their phone</small>
+          </button>
+        </div>
+        <button id="welcome-help" class="secondary">NEW HERE? READ HOW TO PLAY</button>
+        <label class="skip-welcome"><input type="checkbox" id="skip-welcome"> Don't show this page again</label>
+        <p class="hint tiny">Tap the BATTLESHIPS logo any time to come back here.</p>
+      </div>
+    </section>
 
     <!-- SETTINGS -->
     <section id="screen-settings" class="screen active">
