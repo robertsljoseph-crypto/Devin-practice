@@ -1,0 +1,11 @@
+{
+  "name": "Allergy Tracker",
+  "short_name": "Allergies",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f7f6",
+  "theme_color": "#1f7a5a",
+  "icons": [
+    { "src": "/icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

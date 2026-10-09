@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#1f7a5a" />
+<title>Allergy Tracker</title>
+<link rel="manifest" href="/manifest.json" />
+<link rel="apple-touch-icon" href="/icon.png" />
+<link rel="stylesheet" href="/styles.css" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+<script src="/app.js" defer></script>
+</head>
+<body>
+<div id="login" class="overlay hidden">
+  <form id="login-form" class="card">
+    <h1 id="login-title">Allergy Tracker</h1>
+    <label for="passcode">Passcode</label>
+    <input id="passcode" type="password" autocomplete="current-password" />
+    <button type="submit">Unlock</button>
+    <p id="login-error" class="error"></p>
+  </form>
+</div>
+
+<header>
+  <h1>Allergy Tracker <span class="zip" id="zip-label"></span></h1>
+  <nav>
+    <button data-view="today" class="active">Today</button>
+    <button data-view="history">History</button>
+    <button data-view="insights">Insights</button>
+    <button data-view="settings">Settings</button>
+  </nav>
+</header>
+
+<main>
+  <section id="view-today" class="view">
+    <div class="card env" id="env-card">
+      <div class="env-head">
+        <input type="date" id="log-date" />
+        <span id="pollen-badge" class="badge">–</span>
+      </div>
+      <div class="env-grid" id="env-grid"></div>
+      <div class="triggers" id="env-triggers"></div>
+    </div>
+
+    <form class="card" id="log-form">
+      <h2>How do you feel?</h2>
+      <div id="symptom-list"></div>
+      <label for="outdoor">Time outdoors (minutes)</label>
+      <input id="outdoor" type="number" min="0" step="15" value="0" />
+      <label for="medications">Medications taken</label>
+      <input id="medications" type="text" placeholder="e.g. Zyrtec 10mg, Flonase" />
+      <label for="notes">Notes</label>
+      <textarea id="notes" rows="2" placeholder="Mowed the lawn, windows open..."></textarea>
+      <button type="submit">Save log</button>
+      <p id="save-status" class="status"></p>
+    </form>
+
+    <div class="card">
+      <h2>Pollen forecast</h2>
+      <div id="forecast-list" class="forecast"></div>
+    </div>
+  </section>
+
+  <section id="view-history" class="view hidden">
+    <div class="card">
+      <h2>Symptoms vs pollen</h2>
+      <canvas id="history-chart" height="220"></canvas>
+    </div>
+    <div class="card">
+      <h2>Recent days</h2>
+      <div class="table-wrap"><table id="history-table"></table></div>
+    </div>
+  </section>
+
+  <section id="view-insights" class="view hidden">
+    <div class="card" id="insight-summary"></div>
+    <div class="card">
+      <h2>What tracks with your symptoms</h2>
+      <p class="hint">Spearman correlation between each daily metric and your total symptom score (-1 to 1).</p>
+      <div id="correlations"></div>
+    </div>
+    <div class="card">
+      <h2>Top allergen contributors</h2>
+      <p class="hint">How much worse (or better) than your overall average you feel on days each allergen is among the region's top pollens.</p>
+      <div id="triggers"></div>
+    </div>
+    <div class="card">
+      <h2>Which symptoms are pollen-driven</h2>
+      <div id="per-symptom"></div>
+    </div>
+    <div class="card">
+      <h2>Season profile</h2>
+      <canvas id="season-chart" height="200"></canvas>
+    </div>
+    <div class="card">
+      <h2>Worst days so far</h2>
+      <div id="worst-days"></div>
+    </div>
+  </section>
+
+  <section id="view-settings" class="view hidden">
+    <div class="card">
+      <h2>Daily reminder</h2>
+      <p class="hint">Install this page to your home screen first (Share → Add to Home Screen on iPhone), then enable notifications.</p>
+      <label for="reminder-hour">Remind me at</label>
+      <select id="reminder-hour"></select>
+      <button id="enable-push">Enable notifications on this device</button>
+      <button id="test-push" class="secondary">Send test notification</button>
+      <p id="push-status" class="status"></p>
+    </div>
+    <div class="card">
+      <h2>Data</h2>
+      <button id="refresh-data" class="secondary">Refresh pollen / weather now</button>
+      <button id="backfill-data" class="secondary">Backfill 2 years of weather + air quality</button>
+      <a id="export" href="/api/export.csv">Download CSV</a>
+      <p id="data-status" class="status"></p>
+    </div>
+  </section>
+</main>
+</body>
+</html>
